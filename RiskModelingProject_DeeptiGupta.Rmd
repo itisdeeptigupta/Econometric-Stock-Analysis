@@ -1,0 +1,392 @@
+---
+title: "Risk Analysis of IBM, GE and P&G"
+author: "Deepti Gupta"
+date: "July 11, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load the packages and libraries
+```{r echo=T, results='hide', warning=FALSE, message=FALSE}
+#Install packages and include libraries
+
+# install.packages(readxl)
+# install.packages(FRAPO)
+# install.packages(timeSeries)
+# install.packages(QRM)
+# install.packages(fGarch)
+# install.packages(readr)
+# install.packages(zoo)
+# install.packages(fBasics)
+# install.packages(evir)
+# install.packages(ismev)
+# install.packages(fExtremes)
+# install.packages("GeneralizedHyperbolic")
+# install.packages(ghyp)
+
+
+getwd()
+library(readxl)
+library(FRAPO)
+library(timeSeries)
+library(QRM)
+library(fGarch)
+library(readr)
+library(zoo)
+library(fBasics)
+library(evir)
+library(ismev)
+library(fExtremes)
+library(GeneralizedHyperbolic)
+library(ghyp)
+
+setwd("C:/Study/515-RiskModelingAndAssessment/RStudio")
+#setwd("C:/My/ANLY515")
+
+
+
+```
+
+
+###Load Data - IBM, GE and PG, Frequency monthly, 1962-01-01 till current month
+```{r}
+
+GE <- read_csv("./data/GE.csv", 
+    col_types = cols(`Adj Close` = col_number(), 
+        Close = col_number(), Date = col_date(format = "%Y-%m-%d"), 
+        High = col_number(), Low = col_number(), 
+        Open = col_number(), Volume = col_integer()))
+head(GE)
+
+IBM <- read_csv("./data/IBM.csv", 
+    col_types = cols(`Adj Close` = col_number(), 
+        Close = col_number(), Date = col_date(format = "%Y-%m-%d"), 
+        High = col_number(), Low = col_number(), 
+        Open = col_number(), Volume = col_integer()))
+head(IBM)
+
+PG <- read_csv("./data/PG.csv", 
+    col_types = cols(`Adj Close` = col_number(), 
+        Close = col_number(), Date = col_date(format = "%Y-%m-%d"), 
+        High = col_number(), Low = col_number(), 
+        Open = col_number(), Volume = col_integer()))
+head(PG)
+
+
+
+```
+
+###Pre-process the data
+```{r}
+
+
+IBMPrice <- IBM$Close
+GEPrice  <- GE$Close
+PGPrice  <- PG$Close
+
+date <- as.character(IBM$Date)   
+dateSub  <- date[date > "1962-01-01"]
+
+attr(IBMPrice, 'time') <- date
+attr(GEPrice , 'time') <- date
+attr(PGPrice , 'time') <- date
+
+IBMRet <- na.omit(returnSeries(IBMPrice))
+GERet  <- na.omit(returnSeries(GEPrice))
+PGRet  <- na.omit(returnSeries(PGPrice) )
+
+attr(IBMRet, 'time') <- dateSub
+attr(GERet , 'time') <- dateSub
+attr(PGRet , 'time') <- dateSub
+
+
+##Calculate losses
+IBMloss <- as.data.frame(na.omit(-1.0*diff(log(IBM$Close))*100.0))
+colnames(IBMloss) <- c("IBM")
+head(IBMloss)
+
+GEloss <- as.data.frame(na.omit(-1.0*diff(log(GE$Close))*100.0))
+colnames(GEloss) <- c("GE")
+head(GEloss)
+
+PGloss <- as.data.frame(na.omit(-1.0*diff(log(PG$Close))*100.0))
+colnames(PGloss) <- c("PG")
+head(PGloss)
+
+IBMLossTs <- timeSeries(IBMloss$IBM, charvec = dateSub)
+GELossTs  <- timeSeries(GEloss$GE,   charvec = dateSub)
+PGLossTs  <- timeSeries(PGloss$PG,   charvec = dateSub)
+
+
+dataset <- cbind(IBM$Close, GE$Close, PG$Close )
+colnames(dataset) <- c("IBM", "GE", "PG")
+head(dataset)
+
+
+dataTS <- timeSeries(dataset[, c("IBM","GE", "PG")], charvec = date)
+head(dataTS)
+plot(dataTS, main = "Closing Price of the stocks")
+
+
+dataReturns <- na.omit(returnseries(dataTS, method = "discrete",trim = FALSE))
+plot(dataReturns, main = "Monthly Returns of the stocks")
+
+
+dataloss <- as.data.frame(na.omit(-1.0*diff(log(dataset))*100.0))
+datalossts <- timeSeries(dataloss, charvec = dateSub)
+plot(datalossts, main = "Monthly Losses of the stocks")
+
+```
+
+
+
+Covariance And Global Minimum Variance Portfolio
+```{r}
+
+# covariance matrix using cov() function and "pairwise.complete.obs" specification
+dataCOV <- cov(dataReturns, use="pairwise.complete.obs")
+dataCOV
+
+
+
+#Find weights of the "global minimum variance portfolio". 
+PGMV<-PGMV(dataCOV)
+PGMV
+
+w<-Weights(PGMV)/100
+wIBM <- as.numeric(w[1])
+wGE  <- as.numeric(w[2])
+wPG  <- as.numeric(w[3])
+
+dataCOV
+wIBM
+wGE 
+wPG 
+
+```
+
+
+Check ACF and Test Auto-correlation
+```{r}
+
+
+par(mfrow=c(3,2), mar = c(3,3,3,3) ) 
+acf(IBMloss$IBM, main="ACF of IBM Losses" , lag.max=20, ylab="", xlab= "", col="blue", ci.col="red") 
+pacf(IBMloss$IBM, main="PACF of IBM Losses", lag.max=20,ylab="", xlab = "", col = "blue", ci.col="red")
+
+acf(GEloss$GE, main="ACF of GE Losses" , lag.max=20, ylab="", xlab= "", col="blue", ci.col="red") 
+pacf(GEloss$GE, main="PACF of GE Losses", lag.max=20,ylab="", xlab = "", col = "blue", ci.col="red") 
+
+acf(PGloss$PG, main="ACF of PG Losses" , lag.max=20, ylab="", xlab= "", col="blue", ci.col="red") 
+pacf(PGloss$PG, main="PACF of PG Losses" , lag.max=20,ylab="", xlab = "", col = "blue", ci.col="red") 
+
+
+Box.test(IBMloss$IBM, lag=10, type="Ljung-Box")
+
+# There is one autocorrelation lying outside the 95% limits, and the Ljung-Box  
+# statistic has a p-value of 0.8 (for  h = 10  ). This suggests that the monthly 
+# change in the IBM stock price is essentially a random amount which is uncorrelated 
+# with that of previous month
+
+Box.test(GEloss$GE, lag=10, type="Ljung-Box")
+
+# There is one autocorrelation lying outside the 95% limits, and the Ljung-Box  
+# statistic has a p-value of 0.02 (for  h = 10), suggesting that the monthly 
+# change in the GE stock price is correlated with that of previous month
+
+
+Box.test(PGloss$PG, lag=10, type="Ljung-Box")
+
+# There is one autocorrelation lying outside the 95% limits, and the Ljung-Box  
+# statistic has a p-value of 0.2 (for  h = 10 ). This suggests that the monthly 
+# change in the PG stock price is essentially a random amount which is uncorrelated 
+# with that of previous month
+
+
+```
+
+
+
+## METHOD 1: Fitting generalized hyperbolic distribution model and Calculating Risks
+
+```{r}
+
+
+myport <- (wIBM * IBMRet) + (wGE * GERet) + (wPG * PGRet)
+plot(myport)
+
+
+myportts <- timeSeries(myport, charvec = dateSub) 
+str(myportts)
+head(myportts)
+plot(myportts) # high volatility observed
+
+
+```
+
+
+```{r echo=T, results='hide'}
+# Use stepAIC.ghyp() function to see which distribution has the closest fit to the actual distribution of "myportts" returns
+
+
+AIC <- stepAIC.ghyp(myportts)
+AIC$fit.table
+
+# Goal is aic should be minimum which is true for ghyp (generalized hyperbolic distribution)  model for symmetric = FALSE
+
+# Fit "myportts" data to the chosen model and save the estimated coeficients as xxxfit.
+# where xxx represents the choice of the model ("ghyp", "hyp", "NIG", "VG", "t", "gauss")
+
+ghypfit<- fit.ghypuv(myportts, symmetric = FALSE, control = list(maxit = 1000), na.rm = TRUE)
+
+
+# 
+ef <- density(myportts, na.rm = TRUE)
+ghypdens <- dghyp(ef$x , ghypfit)
+
+plot(ef, xlab = "", ylab = expression(f(x)), ylim = c(0, 10))
+lines(ef$x , ghypdens, col = "red")
+```
+
+
+```{r}
+summary(ghypfit)
+hist(myport, breaks = 100) #left tail for VaR and right tail for ES
+
+p <- seq(0.01,0.05,0.01)
+
+portvar <- abs(qghyp(p, ghypfit)) * 100
+portvar          # VaR Values in the vector form of quantile
+
+# 99%    98%    97%    96%    95%
+# 11.9   9.8    8.6    7.7    7.1
+
+portes <- abs(ESghyp(p, ghypfit)) * 100
+portes           # ES values in the vector form of quantile
+
+# 99%    98%    97%    96%    95%
+# 15.04  12.9   11.66  10.7   10.12
+```
+
+
+
+### METHOD 2 - MODEL THE LOSSES FOR GARCH AND ARIMA
+```{r}
+
+library(forecast)
+auto.arima(IBMloss$IBM)
+auto.arima(GEloss$GE)
+auto.arima(PGloss$PG)
+
+
+## Step 1 : Estimate ARMA+GARCH model and create 1 step ahead forecast of the stdev
+gafit <- lapply(dataloss, garchFit , formula =  ~arma(0,0) + garch(1, 1) ,cond.dist="std",trace=FALSE)
+
+gaprog <- unlist(lapply(gafit , function(x) predict(x,n.ahead = 1)[3]))
+
+
+##Step 2 : Find the best fitting distribution and estimate distribution coefficients for the return series
+df <- unlist(lapply(gafit, function(x) x@fit$coef[5]))
+head(df)
+
+## Step 3: Simulate 100,000 random variables(returns) that follow the identified distribution with estimated parameters 
+
+rand <- sapply(1:3, function(x) rt(100000, df = df[x]) )
+hist(rand, breaks = 100)
+
+ht.mat <- matrix(gaprog, nrow = 100000, ncol = ncol(dataloss), byrow = TRUE)
+head(ht.mat)
+
+
+## Step 4: Multiply each simulated return by forecasted stdev
+weights <- c(wIBM, wGE , wPG )   # from GMVP portfolio
+
+pfall.garch <- (rand * ht.mat) %*% weights
+head(pfall.garch)
+
+
+## Step 5: Sort the product obtained in 4 from smallest to largest 
+#a.	VAR is the 5,000th largest loss
+#b.	ES is the median of 5,000 largest losses 
+pfall.garch.es95 <- median(tail(sort(pfall.garch), 5000))
+pfall.garch.es95    #8.787554
+
+pfall.garch.var95 <- min(tail(sort(pfall.garch), 5000))
+pfall.garch.var95     #7.234231
+
+
+
+
+```
+
+
+
+
+### METHOD 3 - USING GARCH-COPULA APPROACH TO DETERMINE PORTFOLIO RISK
+
+```{r}
+
+head(dataset)
+head(dataloss)
+
+### Step 1:  Estimate GARCH model
+dfit<-lapply(dataloss,garchFit,formula=~arma(0,0)+garch(1,1),cond.dist="std",trace=FALSE)
+dfit
+
+
+dprog<-unlist(lapply(dfit,function(x) predict(x,n.ahead = 1)[3]))
+
+# Estimate degrees-of-freedom parameters
+dshape<-unlist(lapply(dfit, function(x) x@fit$coef[5]))
+
+### Step 2: Estimates conditional standardized residuals are extracted.(h.t - conditional variance)
+dresid<-as.matrix(data.frame(lapply(dfit,function(x) x@residuals / sqrt(x@h.t))))
+head(dresid)
+
+
+### Step 3 : pseudo-uniform variables that generates probabilites for each risk from the standardized residuals  (measured as conditional resid)
+U <- sapply(1:3, function(y) pt(dresid[, y], df = dshape[y]))
+head(U)
+hist(U, breaks = 50)
+
+### Step 4 : Estimate the copula model - Student's t copula is estimated based on Kendall's rank correlations.  
+
+cop <- fit.tcopula(Udata = U, method = "Kendall")
+cop
+
+### Step 5 : 100,000 random losses simulated for each financial instrument 
+rcop <- rcopula.t(100000, df = cop$nu, Sigma = cop$P)
+head(rcop)
+hist(rcop, breaks = 100)
+
+
+### Step 6 : Compute the quantiles for these Monte Carlo draws.
+qcop <- sapply(1:3, function(x) qstd(rcop[, x], nu = dshape[x]))
+head(qcop)
+hist(qcop, breaks = 100)
+
+ht.mat <- matrix(dprog, nrow = 100000, ncol = ncol(dataloss), byrow = TRUE)
+head(ht.mat)
+pf <- qcop * ht.mat
+head(pf)
+## ES 95 percent   
+weights <- c(wIBM, wGE , wPG )   # from GMVP portfolio
+
+
+### Step 7 : The simulated portfolio losses are then determined as the outcome of the matrix-weight vector product
+
+pfall <- (qcop * ht.mat) %*% weights
+head(pfall)
+
+### Step 8
+pfall.es95 <- median(tail(sort(pfall), 5000))
+pfall.es95       # 10.3174
+pfall.var95 <- min(tail(sort(pfall), 5000))
+pfall.var95     # 7.8486
+
+
+```
